@@ -196,8 +196,10 @@ def save_json(records, output_path="isotopes.json"):
 
 
 if __name__ == "__main__":
-    input_file = "isotopic_nist_info.txt"
-    output_file = "isotopes.json"
+    from pathlib import Path
+    _root = Path(__file__).resolve().parent.parent
+    input_file = str(_root / "data" / "reference" / "isotopic_nist_info.txt")
+    output_file = str(_root / "data" / "reference" / "isotopes.json")
 
     data = parse_nist_ascii(input_file)
     save_json(data, output_file)

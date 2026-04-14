@@ -165,7 +165,7 @@ def _safe_tk_blit(argsid):
 _backend_tk._blit = _safe_tk_blit
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
-DEFAULT_CSV       = "neodynium.csv"
+DEFAULT_CSV       = "data/samples/neodynium.csv"
 DEFAULT_TARGETS   = [
 157.901,
 158.903,
@@ -181,7 +181,7 @@ DEFAULT_USE_SG_SMOOTHING = True
 DEFAULT_SG_WINDOW = 0
 DEFAULT_SG_POLY   = 4
 DEFAULT_INTENSITY_FRACTION = 0.01
-DEFAULT_ISOTOPE_JSON = "isotopes.json"
+DEFAULT_ISOTOPE_JSON = "data/reference/isotopes.json"
 DEFAULT_MIN_ISOTOPIC_COMPOSITION = 1e-5
 DEFAULT_MAX_COMBO_SIZE = 2
 DEFAULT_MAX_LABEL_ROWS = 60

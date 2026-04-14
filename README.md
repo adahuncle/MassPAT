@@ -4,6 +4,28 @@ Desktop tooling for inspecting mass spectrometry peaks, comparing manual and aut
 
 The main application is `peak_inspector.py`, a Tkinter GUI that loads a two-column spectrum file (`m/z`, `intensity`), lets you step through target peaks, and compares several automatic boundary-selection methods against manual picks.
 
+## Project layout
+
+```
+peak_finder/
+├── peak_inspector.py          # main interactive desktop application
+├── auto_selection.py          # core automatic peak-selection algorithms
+├── data/
+│   ├── reference/
+│   │   ├── isotopes.json      # parsed isotope database (generated from NIST source)
+│   │   └── isotopic_nist_info.txt  # raw NIST isotope source data
+│   └── samples/
+│       ├── neodynium.csv      # default example spectrum (loaded on startup)
+│       └── excess noiseavg scan.csv  # additional sample spectrum
+├── examples/
+│   ├── test.csv               # example exported summary output
+│   └── test_methods.csv       # example exported per-method output
+├── tools/
+│   ├── txt_to_json.py         # converts isotopic_nist_info.txt → isotopes.json
+│   └── peak_finder.py         # standalone derivative plotting script
+└── logs/                      # runtime logs, one file per session (git-ignored)
+```
+
 ## What it does
 
 - Loads a spectrum from CSV and analyzes one or more target `m/z` values.
@@ -11,19 +33,8 @@ The main application is `peak_inspector.py`, a Tkinter GUI that loads a two-colu
 - Computes automatic bounds using derivative, threshold, and minima-based methods.
 - Supports manual left / peak / right assignment for review and comparison.
 - Exports a summary CSV plus a per-method CSV for downstream analysis.
-- Matches reviewed peaks against isotope combinations from `isotopes.json`.
+- Matches reviewed peaks against isotope combinations from `data/reference/isotopes.json`.
 - Writes runtime logs to the `logs/` directory.
-
-## Project files
-
-- `peak_inspector.py`: main interactive desktop application.
-- `auto_selection.py`: core automatic peak-selection logic.
-- `txt_to_json.py`: converts the NIST-style isotope text file into `isotopes.json`.
-- `peak_finder.py`: small plotting / derivative experiment script.
-- `isotopic_nist_info.txt`: source isotope data.
-- `isotopes.json`: parsed isotope database used by the GUI.
-- `neodynium.csv`: example spectrum file.
-- `test.csv`, `test_methods.csv`: example exported outputs.
 
 ## Requirements
 
@@ -57,9 +68,9 @@ python peak_inspector.py
 
 On startup, the app will try to:
 
-- load `neodynium.csv`
+- load `data/samples/neodynium.csv`
 - add the built-in default target list
-- preload isotope data from `isotopes.json`
+- preload isotope data from `data/reference/isotopes.json`
 
 ## Input formats
 
@@ -146,17 +157,19 @@ The exported data includes, among other fields:
 - percent error versus manual selection
 - best isotope label match, with error in `mmu` and `ppm`
 
+See `examples/test.csv` and `examples/test_methods.csv` for the expected output format.
+
 ## Isotope database
 
-The GUI uses `isotopes.json` to support isotope labeling and combination matching.
+The GUI uses `data/reference/isotopes.json` to support isotope labeling and combination matching.
 
 To regenerate that JSON from the bundled NIST-style text file:
 
 ```powershell
-python txt_to_json.py
+python tools/txt_to_json.py
 ```
 
-This reads `isotopic_nist_info.txt` and writes `isotopes.json`.
+This reads `data/reference/isotopic_nist_info.txt` and writes `data/reference/isotopes.json`.
 
 ## Logs
 
@@ -166,14 +179,17 @@ Application logs are written to `logs/` with timestamped filenames such as:
 logs/peak_inspector_YYYYMMDD_HHMMSS.log
 ```
 
-These logs are useful if the GUI hits an unexpected exception.
+These logs are useful if the GUI hits an unexpected exception. The `logs/` directory is git-ignored.
 
-## Helper script
+## Tools
 
-`peak_finder.py` is a small standalone plotting script for exploring a narrow region of `neodynium.csv` and visualizing the raw signal plus first and second derivatives. It is separate from the main GUI workflow.
+`tools/peak_finder.py` is a small standalone plotting script for exploring a narrow region of the neodymium spectrum and visualizing the raw signal plus first and second derivatives. It is separate from the main GUI workflow.
+
+`tools/txt_to_json.py` converts the NIST isotope text file into the JSON database used by the GUI. Run it from the project root whenever `data/reference/isotopic_nist_info.txt` is updated.
 
 ## Known assumptions
 
 - The spectrum loader expects numeric data in the first two columns.
 - Automatic analysis works on a local window around each target `m/z`.
-- If `isotopes.json` is missing or invalid, isotope matching is simply unavailable rather than fatal.
+- If `data/reference/isotopes.json` is missing or invalid, isotope matching is simply unavailable rather than fatal.
+- Run `peak_inspector.py` from the project root so relative data paths resolve correctly.

@@ -3,7 +3,9 @@ import os
 import numpy as np 
 import matplotlib.pyplot as plt
 
-df = pd.read_csv("neodynium.csv")
+from pathlib import Path
+_root = Path(__file__).resolve().parent.parent
+df = pd.read_csv(_root / "data" / "samples" / "neodynium.csv")
 
 print(df.head())
 

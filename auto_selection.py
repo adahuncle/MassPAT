@@ -191,9 +191,20 @@ def get_gradient_bounds(x_arr, y_sm, dy, peak_idx, eps=None,
             }
         return None, None
 
-    max_abs_dy = float(np.max(np.abs(dy))) if n else 0.0
+    abs_dy = np.abs(dy)
+    max_abs_dy = float(np.max(abs_dy)) if n else 0.0
     if eps is None:
-        eps = DEFAULT_GRADIENT_EPS_FRACTION * max_abs_dy
+        # On noisy raw data, max_abs_dy is dominated by isolated noise spike
+        # outliers anywhere in the window, inflating eps so much that the
+        # gradient detector goes blind to real peak edges.  Instead, measure
+        # the gradient scale in a small neighbourhood around the confirmed peak
+        # (where we know real signal exists) and use that as the reference.
+        flank_radius = max(min_distance_points, max(1, int(n * 0.05)))
+        flank_lo = max(0, peak_idx - flank_radius)
+        flank_hi = min(n, peak_idx + flank_radius + 1)
+        peak_region_scale = float(np.max(abs_dy[flank_lo:flank_hi])) if flank_hi > flank_lo else max_abs_dy
+        # Floor at 0.1% of the window-wide max so eps is never literally zero.
+        eps = DEFAULT_GRADIENT_EPS_FRACTION * max(peak_region_scale, max_abs_dy * 0.001)
 
     eps = max(float(eps), 0.0)
     k = max(1, int(k))
@@ -293,7 +304,16 @@ def analyze_window(df, target, half_window=DEFAULT_HALF_WIN,
     if len(candidate_idx):
         peak_idx = int(candidate_idx[np.argmin(np.abs(x_arr[candidate_idx] - float(target)))])
     else:
-        peak_idx = int(np.argmax(y_sm))
+        # No candidate passed the tolerance filter.  argmax on noisy data will
+        # land on a noise spike (highest point in window, not necessarily near
+        # the target).  Instead, find all local maxima without constraints and
+        # pick the one closest to the target m/z.  Fall back to argmax only if
+        # there are genuinely no local maxima (monotone data).
+        fallback_idx, _ = find_peaks(y_sm)
+        if len(fallback_idx):
+            peak_idx = int(fallback_idx[np.argmin(np.abs(x_arr[fallback_idx] - float(target)))])
+        else:
+            peak_idx = int(np.argmax(y_sm))
 
     auto_peak_mz = float(x_arr[peak_idx])
     auto_peak_int = float(y_sm[peak_idx])

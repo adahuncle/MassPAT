@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l c:/Users/Michael/Documents/scripts/peak_finder/*.py)",
+      "Bash(wc -l c:/Users/Michael/Documents/scripts/peak_finder/*.csv)",
+      "Bash(ls *.csv)",
+      "Bash(ls examples/)"
+    ]
+  }
+}
