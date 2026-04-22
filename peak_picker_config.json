@@ -1,0 +1,24 @@
+{
+  "data_files": [
+    "data/samples/neodynium.csv"
+  ],
+  "targets": [
+    157.901,
+    158.903,
+    159.904
+  ],
+  "output_dir": "output/peak_picker",
+  "analysis": {
+    "half_window": 0.15,
+    "use_smoothing": true,
+    "sg_window": 0,
+    "sg_poly": 4,
+    "intensity_fraction": 0.01,
+    "target_tolerance": 0.005,
+    "min_height_fraction": 0.0,
+    "use_prominence": false,
+    "gradient_min_distance_points": 3,
+    "gradient_baseline_run_length": 3,
+    "gradient_positive_only": true
+  }
+}

@@ -173,7 +173,7 @@ DEFAULT_TARGETS   = [
 160.906,
 161.907,
 163.91,
-165.914
+165.916
 ]
 DEFAULT_HALF_WIN  = 0.15
 DEFAULT_VIEW_WIN  = 0.01
@@ -181,18 +181,24 @@ DEFAULT_USE_SG_SMOOTHING = True
 DEFAULT_SG_WINDOW = 0
 DEFAULT_SG_POLY   = 4
 DEFAULT_INTENSITY_FRACTION = 0.01
+DEFAULT_GRADIENT_POSITIVE_ONLY = False
 DEFAULT_ISOTOPE_JSON = "data/reference/isotopes.json"
 DEFAULT_MIN_ISOTOPIC_COMPOSITION = 1e-5
 DEFAULT_MAX_COMBO_SIZE = 2
 DEFAULT_MAX_LABEL_ROWS = 60
+# Each entry: (column_id, label, prefix, left_key, right_key)
+# left_key/right_key are keys in the analysis result dict, or None for "manual"
+# (manual bounds come from self.manual[target] instead).
+# To add a new source: append a row here and ensure analyze_window returns
+# the matching {left_key}/{right_key} values.
 SUMMARY_METHODS = [
-    ("manual", "Manual", "manual"),
-    ("auto_active", "Auto", "auto"),
-    ("derivative", "Deriv", "deriv"),
-    ("gradient", "Grad", "gradient"),
-    ("threshold", "Thresh", "thresh"),
-    ("minima", "Minima", "minima"),
-    ("combined", "Union", "combined"),
+    ("manual",      "Manual", "manual",   None,            None),
+    ("auto_active", "Auto",   "auto",     "auto_left",     "auto_right"),
+    ("derivative",  "Deriv",  "deriv",    "deriv_left",    "deriv_right"),
+    ("gradient",    "Grad",   "gradient", "grad_left",     "grad_right"),
+    ("threshold",   "Thresh", "thresh",   "thresh_left",   "thresh_right"),
+    ("minima",      "Minima", "minima",   "minima_left",   "minima_right"),
+    ("combined",    "Union",  "combined", "combined_left", "combined_right"),
 ]
 
 PERIODIC_TABLE_LAYOUT = [
@@ -432,7 +438,7 @@ class PeakInspector(tk.Tk):
         self._closing = False
         self.selector_element_var = tk.StringVar(value="")
         self.selected_isotope_count_var = tk.StringVar(value="Selected isotopes: 0")
-        self.ratio_source_var = tk.StringVar(value="combined")
+        self.ratio_source_var = tk.StringVar(value=SUMMARY_METHODS[-1][2])
         self.ratio_status_var = tk.StringVar(value="Select one or more principal peaks.")
         self.ratio_active_principal_var = tk.StringVar(value="")
         self.ratio_principals = set()
@@ -454,6 +460,7 @@ class PeakInspector(tk.Tk):
         self.use_gradient_var   = tk.BooleanVar(value=True)
         self.use_threshold_var  = tk.BooleanVar(value=True)
         self.intensity_fraction_var = tk.DoubleVar(value=DEFAULT_INTENSITY_FRACTION)
+        self.gradient_positive_only_var = tk.BooleanVar(value=DEFAULT_GRADIENT_POSITIVE_ONLY)
         self.use_minima_var     = tk.BooleanVar(value=True)
         self.mode_var           = tk.StringVar(value="intersection")
         self.show_deriv_var    = tk.BooleanVar(value=True)
@@ -596,7 +603,10 @@ class PeakInspector(tk.Tk):
                 f"SG win={self.sg_window_var.get()}, poly={self.sg_poly_var.get()}"
             ),
             "Derivative": f"enabled={bool(self.use_derivative_var.get())}",
-            "Gradient": f"enabled={bool(self.use_gradient_var.get())}",
+            "Gradient": (
+                f"enabled={bool(self.use_gradient_var.get())}, "
+                f"positive_only={bool(self.gradient_positive_only_var.get())}"
+            ),
             "Threshold": (
                 f"enabled={bool(self.use_threshold_var.get())}, "
                 f"fraction={self.intensity_fraction_var.get():.5g}"
@@ -821,12 +831,24 @@ class PeakInspector(tk.Tk):
                 variable=self.use_gradient_var,
                 command=self._rebuild_analysis_menu,
             ).grid(row=0, column=0, sticky="w", pady=2)
+            ttk.Checkbutton(
+                f,
+                text="Stop edge when intensity is <= 0",
+                variable=self.gradient_positive_only_var,
+                command=self._rebuild_analysis_menu,
+            ).grid(row=1, column=0, sticky="w", pady=(8, 2))
             ttk.Label(
                 f,
                 text="Gradient bounds follow the dy/dx sign pattern around the peak and ignore isolated noisy sign flips.",
                 foreground="#555555",
                 wraplength=430,
-            ).grid(row=1, column=0, sticky="w", pady=(4, 0))
+            ).grid(row=2, column=0, sticky="w", pady=(4, 0))
+            ttk.Label(
+                f,
+                text="When enabled, the edge stops at the first non-positive intensity so only positive signal is included.",
+                foreground="#555555",
+                wraplength=430,
+            ).grid(row=3, column=0, sticky="w", pady=(4, 0))
 
         elif name == "Threshold":
             ttk.Checkbutton(
@@ -1277,7 +1299,7 @@ class PeakInspector(tk.Tk):
         frame = ttk.Frame(summary_panel)
         frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=(0, 4))
 
-        headers = ["Assigned Peak", "Mass Target"] + [label for _column_id, label, _prefix in SUMMARY_METHODS]
+        headers = ["Assigned Peak", "Mass Target"] + [label for _column_id, label, *_ in SUMMARY_METHODS]
         self.summary_sheet = self._build_sheet(
             frame,
             headers,
@@ -1313,7 +1335,7 @@ class PeakInspector(tk.Tk):
         self.ratio_source_combo = ttk.Combobox(
             controls,
             textvariable=self.ratio_source_var,
-            values=[prefix for _column_id, _label, prefix in SUMMARY_METHODS],
+            values=[prefix for _column_id, _label, prefix, *_ in SUMMARY_METHODS],
             state="readonly",
             width=10,
         )
@@ -1774,6 +1796,7 @@ class PeakInspector(tk.Tk):
             sg_window=self.sg_window_var.get(),
             sg_poly=self.sg_poly_var.get(),
             intensity_fraction=self.intensity_fraction_var.get(),
+            gradient_positive_only=self.gradient_positive_only_var.get(),
         )
         LOGGER.info("Analysis end: target=%.4f in %s", target, _format_duration_ms(start_time))
 
@@ -2117,9 +2140,14 @@ class PeakInspector(tk.Tk):
         metrics["width_auto"] = range_width(metrics["auto_left"], metrics["auto_right"])
         metrics["width_gradient"] = range_width(metrics["grad_left"], metrics["grad_right"])
 
-        metrics["sum_intensity_manual"] = sum_intensity_in_bounds(sub, metrics["manual_left"], metrics["manual_right"])
-        metrics["sum_intensity_auto"] = sum_intensity_in_bounds(sub, metrics["auto_left"], metrics["auto_right"])
-        metrics["sum_intensity_gradient"] = sum_intensity_in_bounds(sub, metrics["grad_left"], metrics["grad_right"])
+        for _col_id, _label, prefix, left_key, right_key in SUMMARY_METHODS:
+            if left_key is None:
+                left = manual.get("left")
+                right = manual.get("right")
+            else:
+                left = analysis.get(left_key) if analysis else None
+                right = analysis.get(right_key) if analysis else None
+            metrics[f"sum_intensity_{prefix}"] = sum_intensity_in_bounds(sub, left, right)
 
         manual_sum = metrics["sum_intensity_manual"]
         metrics["range_diff_auto_vs_manual"] = range_width(metrics["width_manual"], metrics["width_auto"])
@@ -2274,7 +2302,7 @@ class PeakInspector(tk.Tk):
 
     def _compute_isotope_ratio_rows(self):
         rows = []
-        prefix = self.ratio_source_var.get() or "combined"
+        prefix = self.ratio_source_var.get() or SUMMARY_METHODS[-1][2]
         for principal in sorted(self.ratio_principals):
             principal_metrics = self._get_target_metrics(principal)
             principal_sum = principal_metrics.get(f"sum_intensity_{prefix}")
@@ -2359,7 +2387,7 @@ class PeakInspector(tk.Tk):
                 self._get_assigned_peak_label(target),
                 self._format_target_value(target),
             ]
-            for _column_id, _label, prefix in SUMMARY_METHODS:
+            for _column_id, _label, prefix, *_ in SUMMARY_METHODS:
                 values.append(self._format_summary_value(metrics.get(f"sum_intensity_{prefix}")))
             rows.append(values)
         self._set_sheet_data(self.summary_sheet, rows)
@@ -2489,6 +2517,8 @@ class PeakInspector(tk.Tk):
         def vline(ax, x_val, color, ls, lw, label):
             ax.axvline(x_val, color=color, linestyle=ls, linewidth=lw, label=label)
 
+        self.ax1.axvspan(a["auto_left"], a["auto_right"],
+                         alpha=0.08, color="#1A7A1A", zorder=0, label="_nolegend_")
         vline(self.ax1, a["auto_peak"],  "#1A7A1A", "-",  1.8, "Auto peak")
         vline(self.ax1, a["auto_left"],  "#1A7A1A", "--", 1.4, f"Auto left ({mode})")
         vline(self.ax1, a["auto_right"], "#1A7A1A", "--", 1.4, f"Auto right ({mode})")
@@ -2524,8 +2554,8 @@ class PeakInspector(tk.Tk):
         except Exception:
             view_half = DEFAULT_VIEW_WIN
         if view_half > 0:
-            x_min = max(x_min, view_center - view_half)
-            x_max = min(x_max, view_center + view_half)
+            x_min = max(x_min, min(view_center - view_half, a["auto_left"]))
+            x_max = min(x_max, max(view_center + view_half, a["auto_right"]))
         if x_max > x_min:
             self.ax1.set_xlim(x_min, x_max)
 

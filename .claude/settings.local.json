@@ -4,7 +4,8 @@
       "Bash(wc -l c:/Users/Michael/Documents/scripts/peak_finder/*.py)",
       "Bash(wc -l c:/Users/Michael/Documents/scripts/peak_finder/*.csv)",
       "Bash(ls *.csv)",
-      "Bash(ls examples/)"
+      "Bash(ls examples/)",
+      "Bash(venv/Scripts/python.exe -c ' *)"
     ]
   }
 }

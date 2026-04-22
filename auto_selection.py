@@ -14,9 +14,10 @@ DEFAULT_INTENSITY_FRACTION = 0.01
 DEFAULT_TARGET_TOLERANCE = 0.005
 DEFAULT_MIN_HEIGHT_FRACTION = 0.0
 DEFAULT_GRADIENT_EPS_FRACTION = 0.01
-DEFAULT_GRADIENT_CONSECUTIVE_VIOLATIONS = 2
+DEFAULT_GRADIENT_CONSECUTIVE_VIOLATIONS = 1
 DEFAULT_GRADIENT_MIN_DISTANCE_POINTS = 3
 DEFAULT_GRADIENT_BASELINE_RUN_LENGTH = 3
+DEFAULT_GRADIENT_POSITIVE_ONLY = True
 
 
 def _nearest_zero_crossing(arr, start_idx, direction):
@@ -99,7 +100,9 @@ def _find_gradient_transition(dy, peak_idx, direction, eps, k, min_distance_poin
 
 
 def _extend_gradient_bound(y_sm, dy, peak_idx, start_idx, direction, eps,
-                           intensity_fraction, flat_run_length):
+                           intensity_fraction, flat_run_length,
+                           positive_only=False,
+                           exclude_at_idx=None):
     n = len(y_sm)
     if n == 0:
         return None, "window edge"
@@ -114,6 +117,15 @@ def _extend_gradient_bound(y_sm, dy, peak_idx, start_idx, direction, eps,
 
     for i in range(start_idx, stop, direction):
         last_idx = i
+        if exclude_at_idx is not None and i == exclude_at_idx:
+            boundary_idx = i + 1 if direction < 0 else i - 1
+            return boundary_idx, "exclusive transition boundary"
+        if positive_only and float(y_sm[i]) <= 0.0:
+            if direction > 0:
+                boundary_idx = max(0, i - 1)
+                return boundary_idx, "non-positive intensity (exclusive)"
+            boundary_idx = min(len(y_sm) - 1, i + 1)
+            return boundary_idx, "non-positive intensity (exclusive)"
         if _is_local_minimum(y_sm, i):
             return i, "minimum"
         if threshold > 0 and float(y_sm[i]) <= threshold:
@@ -169,6 +181,7 @@ def get_gradient_bounds(x_arr, y_sm, dy, peak_idx, eps=None,
                         intensity_fraction=DEFAULT_INTENSITY_FRACTION,
                         min_distance_points=DEFAULT_GRADIENT_MIN_DISTANCE_POINTS,
                         flat_run_length=DEFAULT_GRADIENT_BASELINE_RUN_LENGTH,
+                        positive_only=DEFAULT_GRADIENT_POSITIVE_ONLY,
                         return_debug=False):
     # find the end of the monotonic core, then walk out to the true edge
     n = len(dy)
@@ -194,17 +207,14 @@ def get_gradient_bounds(x_arr, y_sm, dy, peak_idx, eps=None,
     abs_dy = np.abs(dy)
     max_abs_dy = float(np.max(abs_dy)) if n else 0.0
     if eps is None:
-        # On noisy raw data, max_abs_dy is dominated by isolated noise spike
-        # outliers anywhere in the window, inflating eps so much that the
-        # gradient detector goes blind to real peak edges.  Instead, measure
-        # the gradient scale in a small neighbourhood around the confirmed peak
-        # (where we know real signal exists) and use that as the reference.
-        flank_radius = max(min_distance_points, max(1, int(n * 0.05)))
-        flank_lo = max(0, peak_idx - flank_radius)
-        flank_hi = min(n, peak_idx + flank_radius + 1)
-        peak_region_scale = float(np.max(abs_dy[flank_lo:flank_hi])) if flank_hi > flank_lo else max_abs_dy
+        # Use the median of |dy| across the window as the gradient scale
+        # reference.  The max is dominated by the steep peak core and inflates
+        # eps so aggressively that real edge transitions get classified as flat.
+        # The median is robust to those outlier peak slopes and stays close to
+        # the baseline noise / shoulder gradient level.
         # Floor at 0.1% of the window-wide max so eps is never literally zero.
-        eps = DEFAULT_GRADIENT_EPS_FRACTION * max(peak_region_scale, max_abs_dy * 0.001)
+        median_abs_dy = float(np.median(abs_dy)) if n else 0.0
+        eps = DEFAULT_GRADIENT_EPS_FRACTION * max(median_abs_dy, max_abs_dy * 0.001)
 
     eps = max(float(eps), 0.0)
     k = max(1, int(k))
@@ -217,13 +227,37 @@ def get_gradient_bounds(x_arr, y_sm, dy, peak_idx, eps=None,
         dy, peak_idx, +1, eps, k, min_distance_points
     )
 
+    # sign_reversal, negative run (left), and positive run (right) all fire one
+    # index *past* the local minimum at the peak base — the detection condition
+    # triggers on the first point that has already moved away from that minimum.
+    # Step back toward the peak by one so _extend_gradient_bound lands on the
+    # minimum itself instead of overshooting to the next one on noisy data.
+    _LEFT_OVERSHOOT  = ("sign_reversal", "negative run")
+    _RIGHT_OVERSHOOT = ("sign_reversal", "positive run")
+    left_exclude_idx = left_transition_idx if left_transition_reason in _LEFT_OVERSHOOT else None
+    right_exclude_idx = right_transition_idx if right_transition_reason in _RIGHT_OVERSHOOT else None
+    left_extend_start = (
+        left_transition_idx + 1
+        if left_transition_reason in _LEFT_OVERSHOOT and left_transition_idx < n - 1
+        else left_transition_idx
+    )
+    right_extend_start = (
+        right_transition_idx - 1
+        if right_transition_reason in _RIGHT_OVERSHOOT and right_transition_idx > 0
+        else right_transition_idx
+    )
+
     left_idx, left_stop_reason = _extend_gradient_bound(
-        y_sm, dy, peak_idx, left_transition_idx, -1, eps,
-        intensity_fraction, flat_run_length
+        y_sm, dy, peak_idx, left_extend_start, -1, eps,
+        intensity_fraction, flat_run_length,
+        positive_only=positive_only,
+        exclude_at_idx=left_exclude_idx,
     )
     right_idx, right_stop_reason = _extend_gradient_bound(
-        y_sm, dy, peak_idx, right_transition_idx, +1, eps,
-        intensity_fraction, flat_run_length
+        y_sm, dy, peak_idx, right_extend_start, +1, eps,
+        intensity_fraction, flat_run_length,
+        positive_only=positive_only,
+        exclude_at_idx=right_exclude_idx,
     )
 
     if return_debug:
@@ -254,7 +288,8 @@ def analyze_window(df, target, half_window=DEFAULT_HALF_WIN,
                    min_height_fraction=DEFAULT_MIN_HEIGHT_FRACTION,
                    use_prominence=False,
                    gradient_min_distance_points=DEFAULT_GRADIENT_MIN_DISTANCE_POINTS,
-                   gradient_baseline_run_length=DEFAULT_GRADIENT_BASELINE_RUN_LENGTH):
+                   gradient_baseline_run_length=DEFAULT_GRADIENT_BASELINE_RUN_LENGTH,
+                   gradient_positive_only=DEFAULT_GRADIENT_POSITIVE_ONLY):
     """
     Extract local window, smooth, compute derivatives, find auto peak + bounds.
     Returns result dict or None if insufficient data.
@@ -326,6 +361,7 @@ def analyze_window(df, target, half_window=DEFAULT_HALF_WIN,
         intensity_fraction=intensity_fraction,
         min_distance_points=gradient_min_distance_points,
         flat_run_length=gradient_baseline_run_length,
+        positive_only=gradient_positive_only,
         return_debug=True,
     )
     bounds_fallback = grad_left >= grad_right
@@ -359,5 +395,6 @@ def analyze_window(df, target, half_window=DEFAULT_HALF_WIN,
         "grad_right_stop_reason": gradient_debug["right"]["stop_reason"],
         "bounds_fallback": bounds_fallback,
         "auto_peak_int": auto_peak_int,
+        "gradient_positive_only": bool(gradient_positive_only),
         "use_smoothing": bool(use_smoothing),
     }
